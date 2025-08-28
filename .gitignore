@@ -1,0 +1,25 @@
+# package artifacts
+.eggs/
+.hypothesis/
+build/
+dist/
+radiomana.egg-info/
+
+# python artifacts
+*.pyc
+*/.ipynb_checkpoints/
+.hypothesis/
+.coverage
+pylint.log
+pytest.xml
+coverage.xml
+
+# vscode artifacts
+.vscode/
+
+# ignore models and checkpoints
+*.ckpt
+*.pt
+*.pth
+*.tar
+lightning_logs/
