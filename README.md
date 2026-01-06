@@ -1,62 +1,85 @@
 # Radio Mana
 
-*radiomana* is an open-source PyTorch library developed by The Aerospace Corporation for manipulating radio signals.
+*radiomana* is an open-source PyTorch library developed by The Aerospace Corporation for
+**GNSS jamming detection and classification** using deep learning on radio frequency (RF) spectrum data.
 
-## Installation
+## What it does
 
-### Python Package
+This library provides:
+- **Neural network models** (HighwayBaselineModel,NanoGRU) for jamming classification
+- **Data loading utilities** for the Fraunhofer GNSS Jamming Highway2 Dataset
+- **Signal processing transforms** (noise augmentation, time cropping) optimized for RF data
+- **Training pipelines** using PyTorch Lightning for jamming detection research
 
-```bash
-pip install --editable .
-```
-### Datasets
+## Quick Start
 
-1. Download the [Spectrum Highway Dataset 2](https://gitlab.cc-asp.fraunhofer.de/darcy_gnss/fiot_highway2)
-2. Set the `DSET_FIOT_HIGHWAY2` environment variable in your `.bashrc` file to point to the location of the dataset.
+1. Install
 
-```bash
-# example
-export DSET_FIOT_HIGHWAY2=/tmp/highway2
-```
+    ```bash
+    # install in development mode
+    pip install --editable .
+    ```
+2. Download the [Spectrum Highway Dataset 2](https://gitlab.cc-asp.fraunhofer.de/darcy_gnss/fiot_highway2)
+3. Set environment variable in your `.bashrc` file:
+   ```bash
+   export DSET_FIOT_HIGHWAY2=/path/to/highway2/dataset
+   ```
 
-## Usage Example
+## Usage Examples
 
-### Loading the Highway2 Dataset
+### Basic Data Loading
 
 ```python
 import radiomana
 
-# inspect a single item
-dset = radiomana.Highway2Dataset()
-some_psd, some_label = dset[0]
+# inspect a sigle sample and label
+dataset = radiomana.Highway2Dataset()
+psd_sample, label = dataset[0]  # power spectral density + jamming classification
 
-# inspect a whole batch from loader
-dmodule = radiomana.HighwayDataModule()
-dmodule.setup()
-some_batch = next(iter(dmodule.train_datamodule()))
+# inspect a training batch
+datamodule = radiomana.HighwayDataModule(batch_size=32, num_workers=4)
+datamodule.setup()
+train_batch = next(iter(datamodule.train_dataloader()))
 ```
 
-### Training Example
+### Model Inference
+
+```python
+# create and train your own nano model
+model = radiomana.NanoGRU(num_classes=9)
+
+# or load from checkpoint after training
+# model.load_state_dict(torch.load("path/to/your/trained_model.pt"))
+
+# classify RF spectrum
+with torch.no_grad():
+    predictions = model(psd_sample.unsqueeze(0))  # add batch dimension
+    jamming_class = predictions.argmax(dim=1)
+```
+
+### Training Your Own Model
 
 ```bash
-./examples/train_baseline.py
+# train baseline model (with resnet18 or mobilenet_v3_large submodel)
+python examples/train_baseline.py
+
+# train nanogru model
+python examples/train_nano.py
+
+# benchmark model inference speed
+python examples/bench_model.py
 ```
 
-### Highway2 Model Performance
+## Model Performance
 
-With provided basic models and augmentations, we achieve the following performance.
-Observe that when un-augmented we overfit rapidly to the training set and our model doesn't generalize well.
+Performance benchmarks on the Highway2 GNSS jamming detection dataset. Models predict jamming type from RF power spectral density data.
 
-| Model                | Submodel           | Augmentations | # Params (M) | Memory (Mb) |  GFlops | Test Loss | F1    | Acc% |
-|----------------------|--------------------|---------------|--------------|-------------|---------|-----------|-------|------|
-| HighwayBaselineModel | resnet18           | None          |         11.7 |          46 |   1.81  | 0.535     | 0.634 | 79.2 |
-| HighwayBaselineModel | resnet18           | VerticalFlip  |         11.7 |          46 |   1.81  | 0.506     | 0.694 | 80.1 |
-| HighwayBaselineModel | resnet18           | Noise @ -90dB |         11.7 |          46 |   1.81  | 0.521     | 0.633 | 79.6 |
-| HighwayBaselineModel | resnet18           | VFlip & Noise |         11.7 |          46 |   1.81  | 0.507     | 0.662 | 80.2 |
-| HighwayBaselineModel | mobilenet_v3_large | None          |          5.5 |          12 |   0.22  | 0.617     | 0.582 | 75.6 |
-| HighwayBaselineModel | mobilenet_v3_large | VerticalFlip  |          5.5 |          12 |   0.22  | 0.578     | 0.625 | 77.2 |
-| HighwayBaselineModel | mobilenet_v3_large | Noise @ -90dB |          5.5 |          12 |   0.22  | 0.593     | 0.607 | 78.4 |
-| HighwayBaselineModel | mobilenet_v3_large | VFlip & Noise |          5.5 |          12 |   0.22  | 0.527     | 0.611 | 79.5 |
+| Model                | Submodel           | Augmentations | Params (M) | Memory (Mb) | multadds (G) | Test Loss | F1    | Acc% |
+|----------------------|--------------------|---------------|------------|-------------|--------------|-----------|-------|------|
+| HighwayBaselineModel | resnet18           | None          |       11.7 |          46 |        1.81  | 0.535     | 0.634 | 79.2 |
+| HighwayBaselineModel | resnet18           | VFlip & Noise |       11.7 |          46 |        1.81  | 0.507     | 0.662 | 80.2 |
+| HighwayBaselineModel | mobilenet_v3_large | None          |        5.5 |          12 |        0.22  | 0.617     | 0.582 | 75.6 |
+| HighwayBaselineModel | mobilenet_v3_large | VFlip & Noise |        5.5 |          12 |        0.22  | 0.527     | 0.611 | 79.5 |
 
 ## Open Source
 

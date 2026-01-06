@@ -15,7 +15,9 @@ dependencies = [
     "lightning",        # training framework
     "torchmetrics",     # metrics
     "scikit-learn",     # data handling
-    "torchvision",      # for classic model architectures
+    "torchvision",      # transforms
+    "timm",             # block library
+    "imblearn",         # data balancing
 ]
     [project.optional-dependencies]
     test = [
@@ -83,4 +85,4 @@ inputs = ["radiomana", "tests"]
 profile = "black"
 
 [tool.black]
-line-length = 120
+line-length = 160

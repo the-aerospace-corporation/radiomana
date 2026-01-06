@@ -1,15 +1,18 @@
 """loaders for public datasets"""
+
 import os
+from collections import Counter
 from pathlib import Path
 
 import lightning as L
 import numpy as np
 import torch
+from imblearn.over_sampling import RandomOverSampler
 from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision.transforms import v2
 
-from .transforms import LogNoise
+from .transforms import LogNoise, RandomTimeCrop
 
 DSET_ENV_LUT = {
     # lookup table for environment variable to dataset source URL
@@ -83,7 +86,7 @@ class Highway2Dataset(Dataset):
         """
         Get a single PSD and its label.
 
-        PSDs seem to be in dB units, with noise floor around -90 dB.
+        PSDs are in dB units, with noise floor around -90 dB.
 
         Note this function could be accelerated significantly with stochastic caching and shared memory between workers.
         https://charl-ai.github.io/blog/dataloaders/
@@ -118,7 +121,7 @@ class HighwayDataModule(L.LightningDataModule):
         # this allows access to all hparams via self.hparams
         self.save_hyperparameters(logger=False)
 
-    def setup(self, stage=None, root_dir: str = "DSET_FIOT_HIGHWAY2"):
+    def setup(self, stage=None, root_dir: str = "DSET_FIOT_HIGHWAY2", use_oversampling: bool = False):
         """
         called on every process in DDP
 
@@ -131,8 +134,16 @@ class HighwayDataModule(L.LightningDataModule):
             subset="train",
             transform=v2.Compose(
                 [
-                    LogNoise(noise_power_db=-90, p=0.5),
-                    v2.RandomVerticalFlip(p=0.5),
+                    v2.RandomErasing(p=1, value=-90),
+                    RandomTimeCrop(crop_width=211),
+                    v2.RandomChoice(
+                        [
+                            v2.Identity(),
+                            LogNoise(noise_power_db=-110, p=1),
+                            LogNoise(noise_power_db=-90, p=1),
+                            LogNoise(noise_power_db=-70, p=1),
+                        ],
+                    ),
                 ]
             ),
         )
@@ -140,14 +151,72 @@ class HighwayDataModule(L.LightningDataModule):
         self.data_test = Highway2Dataset(root_dir=root_dir, subset="test", transform=None)
 
         # split train into train/val, stratified by class label
+        labels = [label for _, label in data_train.items]
         train_indices, val_indices = train_test_split(
             np.arange(len(data_train)),
             test_size=0.1,
-            stratify=[label for _, label in data_train.items],
+            stratify=labels,
             random_state=0xD00D1E,
         )
-        self.data_train = torch.utils.data.Subset(data_train, train_indices)
-        self.data_val = torch.utils.data.Subset(data_val, val_indices)
+
+        if use_oversampling:
+            # apply oversampling to training set only
+            train_labels = [labels[idx] for idx in train_indices]
+
+            # get counts for ALL classes first to find true majority
+            all_train_counts = Counter(train_labels)
+            print(f"full training set distribution: {all_train_counts}")
+
+            # only oversample classes with few examples
+            non_none_mask = np.array(train_labels) >= 3
+            interference_indices = train_indices[non_none_mask]
+            interference_labels = np.array(train_labels)[non_none_mask]
+
+            orig_counts = Counter(interference_labels)
+            print(f"original interference class distribution: {orig_counts}")
+
+            # oversample interference classes to balance them
+            # note: for PSD data, we use RandomOverSampler instead of SMOTE
+            # since SMOTE creates synthetic samples which may not be realistic for PSDs
+
+            # Option 1: Set specific target counts for each class
+            # sampling_strategy = {4: 200, 5: 200, 6: 200, 7: 200, 8: 200}  # Equal counts
+
+            # Option 2: Oversample to percentage of TRUE majority class (including None classes)
+            max_count = max(all_train_counts.values())
+            target_ratio = 0.1  # 10% of true majority class
+            target_count = int(target_ratio * max_count)
+            sampling_strategy = {cls: max(count, target_count) for cls, count in orig_counts.items()}
+
+            # Option 3: Set maximum samples per class (prevents over-oversampling)
+            # max_samples_per_class = 500
+            # sampling_strategy = {cls: min(count, max_samples_per_class) for cls, count in orig_counts.items()}
+
+            print(f"target sampling strategy: {sampling_strategy}")
+            print(f"true majority class has {max_count} samples, targeting {target_count} samples ({target_ratio*100:.0f}%)")
+
+            oversampler = RandomOverSampler(sampling_strategy=sampling_strategy, random_state=0xC0FFEE)
+
+            # reshape for imblearn (needs 2D)
+            interference_indices_reshaped = interference_indices.reshape(-1, 1)
+            resampled_indices_2d, resampled_labels = oversampler.fit_resample(interference_indices_reshaped, interference_labels)
+            resampled_indices = np.array(resampled_indices_2d).flatten()
+
+            print(f"resampled interference class distribution: {Counter(resampled_labels)}")
+
+            # combine none classes with oversampled interference classes
+            none_indices = train_indices[~non_none_mask]
+            final_train_indices = np.concatenate([none_indices, resampled_indices])
+
+            # shuffle final indices
+            np.random.seed(0xD00D1E)
+            np.random.shuffle(final_train_indices)
+
+            self.data_train = Subset(data_train, final_train_indices.tolist())
+        else:
+            self.data_train = Subset(data_train, train_indices.tolist())
+
+        self.data_val = Subset(data_val, val_indices.tolist())
 
     def train_dataloader(self):
         return DataLoader(
