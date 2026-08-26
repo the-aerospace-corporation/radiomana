@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 
 import lightning as L
-import numpy as np
 import torch
 import torchmetrics
-from einops.layers.torch import Rearrange, Reduce
-from timm.layers import DropPath
-from timm.models.fastvit import (
-    AttentionBlock,
-    MobileOneBlock,
-    PatchEmbed,
-    ReparamLargeKernelConv,
-    RepMixerBlock,
-)
+from einops import repeat, rearrange
+from torchinfo import summary
 from torch import nn
-from torchvision.models import mobilenet_v3_large, mobilenet_v3_small, resnet18
+from torchvision.models import squeezenet1_1
 
 
 class ModelBaseClass(L.LightningModule):
@@ -57,25 +49,15 @@ class ModelBaseClass(L.LightningModule):
 
     def on_test_epoch_end(self):
         self.confmat = self.test_confmat.compute()
-        self.log("test_acc", torch.sum(torch.diagonal(self.confmat)) / torch.sum(self.confmat).item())
+        self.log(
+            "test_acc",
+            torch.sum(torch.diagonal(self.confmat)) / torch.sum(self.confmat).item(),
+        )
         self.log("test_f1", self.test_f1.compute())
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3, weight_decay=0.05)
-
-        scheduler = {
-            "scheduler": torch.optim.lr_scheduler.CyclicLR(
-                optimizer,
-                base_lr=5e-5,
-                max_lr=3e-4,
-                cycle_momentum=False,
-            ),
-            "interval": "step",
-            "frequency": 1,
-            "name": "learning_rate",
-        }
-
-        return {"optimizer": optimizer, "lr_scheduler": scheduler}
+        return optimizer
 
 
 class HighwayBaselineModel(ModelBaseClass):
@@ -83,26 +65,33 @@ class HighwayBaselineModel(ModelBaseClass):
 
     def __init__(self, num_classes: int = 9):
         super().__init__()
-        # add channels dimension and project to 3 channels
-        self.reshape = Rearrange("batchsize height width -> batchsize 1 height width")
-        # pointwise projection to 3 channels
-        self.project = nn.Conv2d(1, 3, kernel_size=1)
         # submodel selection
-        # self.submodel = resnet18()
-        self.submodel = mobilenet_v3_large()
-        self.head = nn.Linear(1000, num_classes)
+        self.submodel = squeezenet1_1(num_classes=num_classes)
 
     def forward(self, x):
-        x = self.reshape(x)
-        x = self.project(x)
+        # add channel dimension and repeat to 3 channels in one step
+        x = repeat(x, "batch height width -> batch 3 height width")
         x = self.submodel(x)
-        x = self.head(x)
+        return x
+
+
+class StudentModel(ModelBaseClass):
+    """Unfinished student model template"""
+
+    def __init__(self, num_classes: int = 9):
+        super().__init__()
+        # create layers (unfinished)
+        self.layers = nn.Identity()
+
+    def forward(self, x):
+        # x will be of shape (batchsize, 512, 243)
+        x = rearrange(x, "batchsize height width -> batchsize 1 height width")  # add channel dimension
+        # x is now of shape (batchsize, 1, 512, 243)
+        x = self.layers(x)
+        # x should be of shape (batchsize, num_classes)
         return x
 
 
 if __name__ == "__main__":
     model = HighwayBaselineModel()
-    print(model)
-    sample_input = torch.randn(16, 512, 243)
-    output = model(sample_input)
-    print(output.shape)
+    summary(model, input_data=torch.randn(1, 512, 243), device="cpu")

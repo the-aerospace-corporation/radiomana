@@ -1,15 +1,14 @@
 # Radio Mana
 
-*radiomana* is an open-source PyTorch library developed by The Aerospace Corporation for
-**GNSS jamming detection and classification** using deep learning on radio frequency (RF) spectrum data.
+*radiomana* is an open-source PyTorch library developed by *The Aerospace Corporation* for **GNSS jamming detection and classification** using deep learning on radio frequency (RF) spectrum data. This library is constructed to support our University Partnership Program (UPP) with Purdue University and to provide students and researchers with a framework for developing and testing neural network models for jamming detection.
 
 ## What it does
 
 This library provides:
-- **Neural network models** (HighwayBaselineModel,NanoGRU) for jamming classification
 - **Data loading utilities** for the Fraunhofer GNSS Jamming Highway2 Dataset
-- **Signal processing transforms** (noise augmentation, time cropping) optimized for RF data
+- **Neural network models** (HighwayBaselineModel) for jamming classification
 - **Training pipelines** using PyTorch Lightning for jamming detection research
+- **Signal processing transforms** (noise augmentation, time cropping) optimized for RF data
 
 ## Quick Start
 
@@ -45,26 +44,25 @@ train_batch = next(iter(datamodule.train_dataloader()))
 ### Model Inference
 
 ```python
-# create and train your own nano model
-model = radiomana.NanoGRU(num_classes=9)
+# create and train your own model
+model = radiomana.HighwayBaselineModel(num_classes=9)
 
 # or load from checkpoint after training
-# model.load_state_dict(torch.load("path/to/your/trained_model.pt"))
+model.load_state_dict(torch.load("path/to/your/trained_model.pt"))
 
 # classify RF spectrum
 with torch.no_grad():
-    predictions = model(psd_sample.unsqueeze(0))  # add batch dimension
-    jamming_class = predictions.argmax(dim=1)
+    logits = model(psd_sample.unsqueeze(0))
+    probabilities = torch.softmax(logits, dim=1)
+    predicted_class = torch.argmax(probabilities, dim=1)
+    confidence = probabilities[0, predicted_class]
 ```
 
 ### Training Your Own Model
 
 ```bash
-# train baseline model (with resnet18 or mobilenet_v3_large submodel)
+# train model
 python examples/train_baseline.py
-
-# train nanogru model
-python examples/train_nano.py
 
 # benchmark model inference speed
 python examples/bench_model.py
@@ -72,16 +70,24 @@ python examples/bench_model.py
 
 ## Model Performance
 
-Performance benchmarks on the Highway2 GNSS jamming detection dataset. Models predict jamming type from RF power spectral density data.
+Performance on the Highway2 GNSS jamming detection dataset using the provided HighwayBaselineModel.
 
-| Model                | Submodel           | Augmentations | Params (M) | Memory (Mb) | multadds (G) | Test Loss | F1    | Acc% |
-|----------------------|--------------------|---------------|------------|-------------|--------------|-----------|-------|------|
-| HighwayBaselineModel | resnet18           | None          |       11.7 |          46 |        1.81  | 0.535     | 0.634 | 79.2 |
-| HighwayBaselineModel | resnet18           | VFlip & Noise |       11.7 |          46 |        1.81  | 0.507     | 0.662 | 80.2 |
-| HighwayBaselineModel | mobilenet_v3_large | None          |        5.5 |          12 |        0.22  | 0.617     | 0.582 | 75.6 |
-| HighwayBaselineModel | mobilenet_v3_large | VFlip & Noise |        5.5 |          12 |        0.22  | 0.527     | 0.611 | 79.5 |
+| Model                |  Submodel  | Augmentations | Params (M) | Memory (MB) | multadds (G) | Test Loss | F1    | Acc% |
+|----------------------|------------|---------------|------------|-------------|--------------|-----------|-------|------|
+| HighwayBaselineModel | squeezenet | None          | 0.7        | 3           | 0.6          | 0.618     | 0.512 | 76.0 |
 
-## Open Source
+## Dataset Classes
+
+Highway2 has 9 classes: labels 0–3 are "no interference" (background variants) and labels 4–8 are interference (chirp at high/medium/small distance, and two cigarette-lighter jammer variants).
+
+Highway1 (11 classes) uses a different taxonomy and doesn't share interference classes 1:1 with Highway2, so for cross-dataset validation both datasets can be collapsed to binary `not_jammed` / `jammed`:
+
+|                  | Highway1       | Highway2          |
+|------------------|----------------|-------------------|
+| `not_jammed` (0) | labels 0, 1, 2 | labels 0, 1, 2, 3 |
+| `jammed` (1)     | labels 3–10    | labels 4–8        |
+
+## Open Source Details
 
 ### Release
 
@@ -101,7 +107,7 @@ the contributor. [You can find our CLA here](https://aerospace.org/sites/default
 
 Please complete the CLA and send us the executed copy. Once a CLA is on file we
 can accept pull requests on GitHub or GitLab. If you have any questions, please
-e-mail us at [oss@aero.org](mailto:oss@aero.org).
+e-mail us at [open-source@aero.org](mailto:open-source@aero.org).
 
 ### Licensing
 
@@ -111,4 +117,4 @@ is not suitable for your needs, our projects are also available under an
 alternative license. An alternative license can allow you to create proprietary
 applications around Aerospace products without being required to meet the
 obligations of the GPL. To inquire about an alternative license, please get in
-touch with us at [oss@aero.org](mailto:oss@aero.org).
+touch with us at [open-source@aero.org](mailto:open-source@aero.org).

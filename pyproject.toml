@@ -7,28 +7,23 @@ authors = [
     {name = "Kyle Logue", email = "kyle.logue@aero.org"},
     {name = "Anson Lam", email = "anson.lam@aero.org"},
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 dependencies = [
-    "torch",            # ml framework
-    "numpy",            # vector math
-    "einops",           # matrix operations
-    "lightning",        # training framework
-    "torchmetrics",     # metrics
-    "scikit-learn",     # data handling
-    "torchvision",      # transforms
-    "timm",             # block library
-    "imblearn",         # data balancing
+    "coverage",     # runs code coverage
+    "einops",       # matrix operations
+    "hypothesis",   # next-gen testing framework
+    "imblearn",     # data balancing
+    "lightning",    # training framework
+    "numpy",        # vector math
+    "pytest-cov",
+    "pytest",
+    "ruff",         # linter
+    "scikit-learn", # data handling
+    "torch",        # ml framework
+    "torchinfo",    # model summary
+    "torchmetrics", # metrics
+    "torchvision",  # transforms
 ]
-    [project.optional-dependencies]
-    test = [
-        "attrs >= 21.4.0", # minimum version for pytype
-        "pylint",
-        "pytest",
-        "pytest-cov",
-        "pytype",       # type checking
-        "coverage",     # runs code coverage
-        "hypothesis",   # next-gen testing framework
-    ]
 
 [tool.setuptools]
 packages = ["radiomana"]
@@ -85,4 +80,7 @@ inputs = ["radiomana", "tests"]
 profile = "black"
 
 [tool.black]
+line-length = 160
+
+[tool.ruff]
 line-length = 160

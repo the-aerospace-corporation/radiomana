@@ -1,11 +1,7 @@
 """Transforms compatible with 2D log PSD tensors"""
 
-from functools import singledispatchmethod
-from typing import Any, Dict, Union
-
 import torch
 from torch import Tensor
-from torchvision.transforms import functional as F
 from torchvision.transforms import v2
 
 

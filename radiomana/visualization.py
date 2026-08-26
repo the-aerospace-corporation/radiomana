@@ -1,76 +1,37 @@
-import datetime
-
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from torch.utils.data import Dataset
 
 from .datasets import HighwayDataModule
 
 
-def compute_average_psd(dset):
-    """compute average for entire dataset and plot it 9 times"""
+def plot_per_class_average(dset):
+    """compute the average PSD per class, per (freq, time) bin, over the entire dataset and plot each class"""
     dset.dataset.transform = None  # disable any transforms
+    class_labels = dset.dataset.class_labels
+    num_classes = len(class_labels)
     avg_psd = None
     counts = None
     for sample, label in dset:
-        if label not in [0, 1, 2]:
-            # only include "noise" classes
-            continue
         if avg_psd is None:
-            avg_psd = torch.zeros(3, sample.shape[0], sample.shape[1])
-            counts = torch.zeros(3)
+            avg_psd = torch.zeros(num_classes, sample.shape[0], sample.shape[1])
+            counts = torch.zeros(num_classes)
         counts[label] += 1
         avg_psd[label] += 10 ** (sample / 10)
-    avg_psd /= counts.unsqueeze(1).unsqueeze(2)
-    avg_psd_freq = avg_psd.mean(dim=2)  # average along time axis
+    counts = counts.clamp(min=1)  # avoid div-by-zero for classes with no samples
+    avg_psd /= counts.unsqueeze(1).unsqueeze(2)  # per-bin average, elementwise over (freq, time)
 
-    avg_psd_freq_db = 10 * torch.log10(avg_psd_freq + 1e-12)
     avg_psd_db = 10 * torch.log10(avg_psd + 1e-12)
 
-    # repeat along time axis to make it plottable
-    avg_psd_freq_db_expanded = avg_psd_freq_db.unsqueeze(2).repeat(1, 1, sample.shape[1])
-
-    for idx in range(3):
-        print(idx, "Mean PSD:", avg_psd_freq_db[idx].numpy())
+    # exactly 9 classes, so this maps 1:1 onto the 3x3 grid
+    samples = [avg_psd_db[idx] for idx in range(num_classes)]
+    labels = list(range(num_classes))
     plot9(
-        [
-            avg_psd_db[0],
-            avg_psd_db[1],
-            avg_psd_db[2],
-            avg_psd_freq_db_expanded[0],
-            avg_psd_freq_db_expanded[1],
-            avg_psd_freq_db_expanded[2],
-            avg_psd_freq_db_expanded[0],
-            avg_psd_freq_db_expanded[1],
-            avg_psd_freq_db_expanded[2],
-        ],
-        [0, 1, 2, 0, 1, 2, 0, 1, 2],
+        samples,
+        labels,
         sample_rate_hz=1,
-        class_labels=["Average PSD"] * 8,
+        class_labels=class_labels,
     )
-
-
-def plot16(samples, vmin=-4, vmax=4):
-    """Given 16 samples, plot them in a 4x4 grid."""
-    fig, axes = plt.subplots(4, 4, figsize=(12, 10), sharex=True, sharey=True)
-    axes = axes.flatten()
-    for adx in range(16):
-        ax = axes[adx]
-        sample = samples[adx]
-        ax.imshow(
-            sample,
-            aspect="auto",
-            origin="lower",
-            cmap="viridis",
-            vmin=vmin,
-            vmax=vmax,
-        )
-        ax.set_title(f"{adx}")
-    plt.tight_layout(pad=0.2, w_pad=0.1, h_pad=0.1)
-    today = datetime.date.today().isoformat()
-    plt.savefig(f"{today}_radiomana_16spec.png")
-    plt.clf()
 
 
 def plot9(samples, labels, sample_rate_hz=1, class_labels=None, vmin=-57, vmax=-16):
@@ -111,28 +72,16 @@ def plot9(samples, labels, sample_rate_hz=1, class_labels=None, vmin=-57, vmax=-
         # Format x ticks as whole numbers
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x)}"))
 
-    plt.tight_layout(pad=0.2, w_pad=0.1, h_pad=0.1)
-    # Save with today's date YYYY-MM-DD
-    today = datetime.date.today().isoformat()
-    label_str = "".join(str(int(label)) for label in labels)
-    # plt.savefig(f"{today}_radiomana_spec_{label_str}.png")
-    # plt.show()
+    plt.tight_layout(pad=0.2, w_pad=0.2, h_pad=0.1)
 
 
 if __name__ == "__main__":
     """
-    Show 9 random samples from the Highway2 dataset.
+    Show Mean PSD per class for the Highway2 dataset.
     """
     loader = HighwayDataModule(batch_size=9)
     loader.setup()
     dset = loader.data_train
 
-    samples, labels = next(iter(loader.train_dataloader()))
-    plot9(
-        samples,
-        labels,
-        sample_rate_hz=loader.data_test.sample_rate_hz,
-        class_labels=loader.data_test.class_labels,
-    )
-
-    # compute_average_psd(dset)
+    plot_per_class_average(dset)
+    plt.show()

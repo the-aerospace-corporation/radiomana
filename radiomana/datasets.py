@@ -16,7 +16,8 @@ from .transforms import LogNoise, RandomTimeCrop
 
 DSET_ENV_LUT = {
     # lookup table for environment variable to dataset source URL
-    "DSET_FIOT_HIGHWAY2": "https://gitlab.cc-asp.fraunhofer.de/darcy_gnss/fiot_highway2"
+    "DSET_FIOT_HIGHWAY1": "https://gitlab.cc-asp.fraunhofer.de/darcy_gnss/FIOT_highway",
+    "DSET_FIOT_HIGHWAY2": "https://gitlab.cc-asp.fraunhofer.de/darcy_gnss/fiot_highway2",
 }
 
 
@@ -44,7 +45,12 @@ class Highway2Dataset(Dataset):
     items are indexed by text files in the root directory and contain rows with "folder/file class_label"
     """
 
-    def __init__(self, root_dir: str = "DSET_FIOT_HIGHWAY2", subset: str = "train", transform=None):
+    def __init__(
+        self,
+        root_dir: str = "DSET_FIOT_HIGHWAY2",
+        subset: str = "train",
+        transform=None,
+    ):
         if subset not in ["train", "test"]:
             raise ValueError("subset must be 'train' or 'test'")
         self.root_dir = get_dataset_path(root_dir)
@@ -56,10 +62,10 @@ class Highway2Dataset(Dataset):
         self.sample_rate_hz = 62.5e6
         self.sample_duration_s = 0.02
         self.class_labels = [
-            "None",
-            "None",
-            "None",
-            "None",
+            "None (background a)",
+            "None (background b)",
+            "None (background c)",
+            "None (background d)",
             "Chirp, high distance",
             "Chirp, medium distance",
             "Chirp, small distance",
@@ -72,7 +78,7 @@ class Highway2Dataset(Dataset):
         if not labels_path.exists():
             raise FileNotFoundError(f"Items file not found at {labels_path}")
         items = []
-        with open(labels_path, "r") as handle:
+        with open(labels_path) as handle:
             for line in handle:
                 parts = line.strip().split()
                 if len(parts) == 2:
@@ -121,31 +127,41 @@ class HighwayDataModule(L.LightningDataModule):
         # this allows access to all hparams via self.hparams
         self.save_hyperparameters(logger=False)
 
-    def setup(self, stage=None, root_dir: str = "DSET_FIOT_HIGHWAY2", use_oversampling: bool = False):
+    def setup(
+        self,
+        stage=None,
+        root_dir: str = "DSET_FIOT_HIGHWAY2",
+        use_oversampling: bool = False,
+        use_augmentation: bool = False,
+    ):
         """
         called on every process in DDP
 
-        We want to augment training data, not validation or test data.
-        Since we want to split our training data into train/val, we need to create two
-        Highway2Dataset instances and then pick specific indices for train/val splits.
+        Parameters
+        ----------
+        use_oversampling : bool, optional
+            whether to apply oversampling to the training set, by default False
+        use_augmentation : bool, optional
+            whether to apply data augmentation to the training set, by default False
         """
+        augmentations = v2.Compose(
+            [
+                v2.RandomErasing(p=1, value=-90),
+                RandomTimeCrop(crop_width=211),
+                v2.RandomChoice(
+                    [
+                        v2.Identity(),
+                        LogNoise(noise_power_db=-110, p=1),
+                        LogNoise(noise_power_db=-90, p=1),
+                        LogNoise(noise_power_db=-70, p=1),
+                    ],
+                ),
+            ]
+        )
         data_train = Highway2Dataset(
             root_dir=root_dir,
             subset="train",
-            transform=v2.Compose(
-                [
-                    v2.RandomErasing(p=1, value=-90),
-                    RandomTimeCrop(crop_width=211),
-                    v2.RandomChoice(
-                        [
-                            v2.Identity(),
-                            LogNoise(noise_power_db=-110, p=1),
-                            LogNoise(noise_power_db=-90, p=1),
-                            LogNoise(noise_power_db=-70, p=1),
-                        ],
-                    ),
-                ]
-            ),
+            transform=augmentations if use_augmentation else None,
         )
         data_val = Highway2Dataset(root_dir=root_dir, subset="train", transform=None)
         self.data_test = Highway2Dataset(root_dir=root_dir, subset="test", transform=None)
@@ -193,7 +209,7 @@ class HighwayDataModule(L.LightningDataModule):
             # sampling_strategy = {cls: min(count, max_samples_per_class) for cls, count in orig_counts.items()}
 
             print(f"target sampling strategy: {sampling_strategy}")
-            print(f"true majority class has {max_count} samples, targeting {target_count} samples ({target_ratio*100:.0f}%)")
+            print(f"true majority class has {max_count} samples, targeting {target_count} samples ({target_ratio * 100:.0f}%)")
 
             oversampler = RandomOverSampler(sampling_strategy=sampling_strategy, random_state=0xC0FFEE)
 
